@@ -64,6 +64,7 @@ reddit = praw.Reddit(
 # posts = list(sub.new(limit=1000))
 # print(f"Length of new posts fetched: {len(posts)}")
 
+# === HELPER FUNCTIONS TO FETCH & STORE ===
 def fetch_with_backoff(generator):
     results = []
     attempts = 0
@@ -114,6 +115,7 @@ def store_comment(comment, post_id):
     ))
     conn.commit()
 
+# === COLLECT ALL DATA (INITIAL SCRAPE) ===
 def collect_reddit_data():
     for subreddit in SUBREDDITS:
         for sort in SORTS:
@@ -160,12 +162,15 @@ def collect_reddit_data():
 
     print("Data collection complete.")
 
+# === UPDATE DATA ===
+# Scrape all new posts that have posted since last collection
+# and check for new comments in posts that were less than 72 hours old when they were collected
 def refresh_recent_and_new_posts():
     now = int(time.time())
     cutoff = now - 72 * 3600  # 72 hours ago
 
     for subreddit in SUBREDDITS:
-        print(f"\n[🔁] Checking new posts in r/{subreddit}")
+        print(f"\nChecking new posts in r/{subreddit}")
         pcount = 0
         sub = reddit.subreddit(subreddit)
         
@@ -194,7 +199,7 @@ def refresh_recent_and_new_posts():
                     time.sleep(random.uniform(0.1, 0.5))
             except Exception as e:
                 print(f"Error fetching comments for post {post.id}: {e}")
-            print(f"✅ Stored {pcount} new posts from r/{subreddit}")
+            print(f"Stored {pcount} new posts from r/{subreddit}")
         
         # Now check previously collected posts that were young at fetch time
         print(f"[🔄] Refreshing comment threads for recent posts in r/{subreddit}")
@@ -205,7 +210,7 @@ def refresh_recent_and_new_posts():
 
         rows = cur.fetchall()
         for post_id, created, fetched in rows:
-            print(f"🔄 Refreshing comments for {post_id}")
+            print(f"Refreshing comments for {post_id}")
             try:
                 post = reddit.submission(id=post_id)
                 post.comments.replace_more(limit=0)
@@ -219,7 +224,7 @@ def refresh_recent_and_new_posts():
             except Exception as e:
                 print(f"Error refreshing comments for {post_id}: {e}")
 
-
+#select one of these two functions depending on whether doing a first collection or an update
 collect_reddit_data() #initial data collection
 #refresh_recent_and_new_posts() #daily check-in after
 conn.close()
