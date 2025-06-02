@@ -7,9 +7,7 @@ from datetime import datetime
 from praw.models import MoreComments
 
 # === CONFIGURATION ===
-REDDIT_CLIENT_ID = "kcHXc5QNzUSnBDPh2HrOtw"
-REDDIT_CLIENT_SECRET = "KQhUO_jeYEIGEnD-2Z2bxtoiQ8vmuw"
-REDDIT_USER_AGENT = "CannTalk research scraper (by u/dreamfall17)"
+from reddit_keys import REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT
 
 SUBREDDITS = ["sleep", "insomnia",
                 "ChronicPain", "Fibromyalgia", "Endo", "endometriosis", "ehlersdanlos", "POTS",
@@ -88,11 +86,22 @@ def already_fetched(post_id):
 
 def store_post(post, subreddit, sort, time_filter):
     cur.execute('''
-        INSERT OR IGNORE INTO posts (id, subreddit, title, selftext, created_utc, score, num_comments, sort, time_filter)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO posts (
+            id, subreddit, title, selftext, created_utc,
+            score, num_comments, sort, time_filter, fetched_utc
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
-        post.id, subreddit, post.title, post.selftext, int(post.created_utc),
-        post.score, post.num_comments, sort, time_filter
+        post.id,
+        subreddit,
+        post.title,
+        post.selftext,
+        int(post.created_utc),
+        post.score,
+        post.num_comments,
+        sort,
+        time_filter,
+        int(time.time())  # Current UTC timestamp
     ))
     conn.commit()
 
@@ -151,5 +160,66 @@ def collect_reddit_data():
 
     print("Data collection complete.")
 
-collect_reddit_data()
+def refresh_recent_and_new_posts():
+    now = int(time.time())
+    cutoff = now - 72 * 3600  # 72 hours ago
+
+    for subreddit in SUBREDDITS:
+        print(f"\n[🔁] Checking new posts in r/{subreddit}")
+        pcount = 0
+        sub = reddit.subreddit(subreddit)
+        
+        # Fetch up to 1000 newest posts
+        try:
+            new_posts = fetch_with_backoff(sub.new(limit=MAX_POSTS_PER_COMBO), MAX_POSTS_PER_COMBO)
+        except Exception as e:
+            print(f"Failed to fetch new posts from r/{subreddit}: {e}")
+            continue
+
+        for post in new_posts:
+            print(f"Processing post {post.id}...")
+            if already_fetched(post.id):
+                print(f"\tPost {post.id} already processed.")
+                continue
+            store_post(post, subreddit, sort="new", time_filter=None)
+            pcount += 1
+            time.sleep(random.uniform(1, 2))
+
+            try:
+                post.comments.replace_more(limit=0)
+                for comment in post.comments.list():
+                    if isinstance(comment, MoreComments):
+                        continue
+                    store_comment(comment, post.id)
+                    time.sleep(random.uniform(0.1, 0.5))
+            except Exception as e:
+                print(f"Error fetching comments for post {post.id}: {e}")
+            print(f"✅ Stored {pcount} new posts from r/{subreddit}")
+        
+        # Now check previously collected posts that were young at fetch time
+        print(f"[🔄] Refreshing comment threads for recent posts in r/{subreddit}")
+        cur.execute('''
+            SELECT id, created_utc, fetched_utc FROM posts
+            WHERE subreddit = ? AND fetched_utc - created_utc < ?
+        ''', (subreddit, 72 * 3600))
+
+        rows = cur.fetchall()
+        for post_id, created, fetched in rows:
+            print(f"🔄 Refreshing comments for {post_id}")
+            try:
+                post = reddit.submission(id=post_id)
+                post.comments.replace_more(limit=0)
+                for comment in post.comments.list():
+                    if isinstance(comment, MoreComments):
+                        continue
+                    if already_fetched_comment(comment.id):
+                        continue
+                    store_comment(comment, post.id)
+                    time.sleep(random.uniform(0.1, 0.5))
+            except Exception as e:
+                print(f"Error refreshing comments for {post_id}: {e}")
+
+
+collect_reddit_data() #initial data collection
+#refresh_recent_and_new_posts() #daily check-in after
 conn.close()
