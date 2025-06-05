@@ -9,29 +9,28 @@ from praw.models import MoreComments
 # === CONFIGURATION ===
 from reddit_keys import REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT
 
-# SUBREDDITS = ["sleep","ChronicPain","depression","Anxiety","insomnia",
-#                 "Fibromyalgia", "Endo", "endometriosis", "ehlersdanlos", "POTS",
-#                 "Anxietyhelp","HealthAnxiety","dpdr","AnxietyDepression","socialanxiety","OCD",
-#                 "Health","mentalhealth","AskDocs","ChronicIllness" 
-#                 ]
+SUBREDDITS = ["sleep","ChronicPain","depression","Anxiety","insomnia",
+                "Fibromyalgia", "Endo", "endometriosis", "ehlersdanlos", "POTS",
+                "Anxietyhelp","HealthAnxiety","dpdr","AnxietyDepression","socialanxiety","OCD",
+                "Health","mentalhealth","AskDocs","ChronicIllness" 
+                ]
 
-SUBREDDITS = ["trees","weed","Petioles","cannabis","Marijuana",
-"eldertrees","entwives","leaves","saplings","delta8","treedibles","vaporents",
-"420","cannabiscultivation","microgrowery",
-"CBD","CBDflower","CBDhempBuds","cbdinfo","CBDoil","CBDOilReviews","cbg","CultoftheFranklin","Dabs","hempflowers",
-"MMJ","noids","rosin","Waxpen"]
+# SUBREDDITS = ["trees","weed","Petioles","cannabis","Marijuana",
+# "eldertrees","entwives","leaves","saplings","delta8","treedibles","vaporents",
+# "420","cannabiscultivation","microgrowery",
+# "CBD","CBDflower","CBDhempBuds","cbdinfo","CBDoil","CBDOilReviews","cbg","CultoftheFranklin","Dabs","hempflowers",
+# "MMJ","noids","rosin","Waxpen"]
 
 SORTS = ["new", "top", "controversial"]
 TIME_FILTERS = ["day", "week", "month", "year", "all"]
 MAX_POSTS_PER_COMBO = 1000 #change to 1000 when done debugging
-DB_PATH = "reddit_data-cann.db"
+# DB_PATH = "reddit_data-cann.db" #cannabis db
+DB_PATH = "reddit_data.db" #health db
+
 
 # === INITIALIZE DB ===
 conn = sqlite3.connect(DB_PATH)
 cur = conn.cursor()
-
-cur.execute("DROP TABLE IF EXISTS posts")
-conn.commit()
 
 cur.execute('''
 CREATE TABLE IF NOT EXISTS posts (
@@ -264,7 +263,7 @@ def backfill_missing_comments():
 
 
 #select one of these two functions depending on whether doing a first collection or an update
-collect_reddit_data() #initial data collection
-# refresh_recent_and_new_posts() #daily check-in after
+# collect_reddit_data() #initial data collection
+refresh_recent_and_new_posts() #daily check-in after
 # backfill_missing_comments()
 conn.close()
