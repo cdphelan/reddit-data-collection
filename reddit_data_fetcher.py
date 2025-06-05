@@ -9,20 +9,29 @@ from praw.models import MoreComments
 # === CONFIGURATION ===
 from reddit_keys import REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT
 
-SUBREDDITS = ["sleep", "insomnia",
-                "ChronicPain", "Fibromyalgia", "Endo", "endometriosis", "ehlersdanlos", "POTS",
-                "depression","Anxiety","socialanxiety","OCD","Anxietyhelp","HealthAnxiety",
-                "dpdr","AnxietyDepression",
-                "Health","mentalhealth","AskDocs","ChronicIllness"]
+# SUBREDDITS = ["sleep","ChronicPain","depression","Anxiety","insomnia",
+#                 "Fibromyalgia", "Endo", "endometriosis", "ehlersdanlos", "POTS",
+#                 "Anxietyhelp","HealthAnxiety","dpdr","AnxietyDepression","socialanxiety","OCD",
+#                 "Health","mentalhealth","AskDocs","ChronicIllness" 
+#                 ]
+
+SUBREDDITS = ["trees","weed","Petioles","cannabis","Marijuana",
+"eldertrees","entwives","leaves","saplings","delta8","treedibles","vaporents",
+"420","cannabiscultivation","microgrowery",
+"CBD","CBDflower","CBDhempBuds","cbdinfo","CBDoil","CBDOilReviews","cbg","CultoftheFranklin","Dabs","hempflowers",
+"MMJ","noids","rosin","Waxpen"]
 
 SORTS = ["new", "top", "controversial"]
 TIME_FILTERS = ["day", "week", "month", "year", "all"]
 MAX_POSTS_PER_COMBO = 1000 #change to 1000 when done debugging
-DB_PATH = "reddit_data.db"
+DB_PATH = "reddit_data-cann.db"
 
 # === INITIALIZE DB ===
 conn = sqlite3.connect(DB_PATH)
 cur = conn.cursor()
+
+cur.execute("DROP TABLE IF EXISTS posts")
+conn.commit()
 
 cur.execute('''
 CREATE TABLE IF NOT EXISTS posts (
@@ -34,7 +43,8 @@ CREATE TABLE IF NOT EXISTS posts (
     score INTEGER,
     num_comments INTEGER,
     sort TEXT,
-    time_filter TEXT
+    time_filter TEXT,
+    fetched_utc INTEGER
 )
 ''')
 
@@ -147,18 +157,18 @@ def collect_reddit_data():
                         continue
 
                     store_post(post, subreddit, sort, time_filter)
-                    time.sleep(random.uniform(1, 3))  # Sleep between posts
+                    time.sleep(random.uniform(0.4, 0.8))  # Sleep between posts, randomized to avoid detection
 
-                    # Fetch and store comments
-                    try:
-                        post.comments.replace_more(limit=0)
-                        for comment in post.comments.list():
-                            if isinstance(comment, MoreComments):
-                                continue
-                            store_comment(comment, post.id)
-                            time.sleep(random.uniform(0.01, 0.1))  # Sleep between comments
-                    except Exception as e:
-                        print(f"Failed to fetch comments for post {post.id}: {e}")
+                    # Fetch and store comments - removing this bc it took way too long, moved to backfill_missing_comments()
+                    # try:
+                    #     post.comments.replace_more(limit=0)
+                    #     for comment in post.comments.list():
+                    #         if isinstance(comment, MoreComments):
+                    #             continue
+                    #         store_comment(comment, post.id)
+                    #         time.sleep(random.uniform(0.01, 0.1))  # Sleep between comments
+                    # except Exception as e:
+                    #     print(f"Failed to fetch comments for post {post.id}: {e}")
 
     print("Data collection complete.")
 
@@ -176,7 +186,7 @@ def refresh_recent_and_new_posts():
         
         # Fetch up to 1000 newest posts
         try:
-            new_posts = fetch_with_backoff(sub.new(limit=MAX_POSTS_PER_COMBO), MAX_POSTS_PER_COMBO)
+            new_posts = fetch_with_backoff(sub.new(limit=MAX_POSTS_PER_COMBO))
         except Exception as e:
             print(f"Failed to fetch new posts from r/{subreddit}: {e}")
             continue
@@ -224,7 +234,37 @@ def refresh_recent_and_new_posts():
             except Exception as e:
                 print(f"Error refreshing comments for {post_id}: {e}")
 
+def backfill_missing_comments():
+    #Get all post IDs
+    cur.execute("SELECT id FROM posts")
+    all_post_ids = [row[0] for row in cur.fetchall()]
+
+    #Get all post_ids that already have comments
+    cur.execute("SELECT DISTINCT post_id FROM comments")
+    posts_with_comments = set(row[0] for row in cur.fetchall())
+
+    #Identify posts that are missing comments
+    posts_missing_comments = list(set(all_post_ids) - posts_with_comments)  # Convert back to list if needed
+
+    print(f"Found {len(posts_missing_comments)} posts missing comments.")
+
+    #Iterate through and collect comments
+    for i, post_id in enumerate(posts_missing_comments, 1):
+        print(f"\n[{i}/{len(posts_missing_comments)}] Backfilling comments for post {post_id}...")
+        try:
+            post = reddit.submission(id=post_id)
+            post.comments.replace_more(limit=0)
+            for comment in post.comments.list():
+                if isinstance(comment, MoreComments):
+                    continue
+                store_comment(comment, post_id)
+                time.sleep(random.uniform(0.01, 0.1))  # Sleep between comments
+        except Exception as e:
+            print(f"Failed to fetch comments for post {post_id}: {e}")
+
+
 #select one of these two functions depending on whether doing a first collection or an update
 collect_reddit_data() #initial data collection
-#refresh_recent_and_new_posts() #daily check-in after
+# refresh_recent_and_new_posts() #daily check-in after
+# backfill_missing_comments()
 conn.close()
