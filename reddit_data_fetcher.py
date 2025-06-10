@@ -9,24 +9,28 @@ from praw.models import MoreComments
 # === CONFIGURATION ===
 from reddit_keys import REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT
 
-SUBREDDITS = ["sleep","ChronicPain","depression","Anxiety","insomnia",
-                "Fibromyalgia", "Endo", "endometriosis", "ehlersdanlos", "POTS",
-                "Anxietyhelp","HealthAnxiety","dpdr","AnxietyDepression","socialanxiety","OCD",
-                "Health","mentalhealth","AskDocs","ChronicIllness" 
-                ]
+group = "health"
+group = "cannabis"
 
-# SUBREDDITS = ["trees","weed","Petioles","cannabis","Marijuana",
-# "eldertrees","entwives","leaves","saplings","delta8","treedibles","vaporents",
-# "420","cannabiscultivation","microgrowery",
-# "CBD","CBDflower","CBDhempBuds","cbdinfo","CBDoil","CBDOilReviews","cbg","CultoftheFranklin","Dabs","hempflowers",
-# "MMJ","noids","rosin","Waxpen"]
+if group == "health":
+    SUBREDDITS = ["sleep","ChronicPain","depression","Anxiety","insomnia",
+                    "Fibromyalgia", "Endo", "endometriosis", "ehlersdanlos", "POTS",
+                    "Anxietyhelp","HealthAnxiety","dpdr","AnxietyDepression","socialanxiety","OCD",
+                    "Health","mentalhealth","AskDocs","ChronicIllness" 
+                    ]
+    DB_PATH = "reddit_data-health.db" #health db
+elif group == "cannabis":
+    SUBREDDITS = ["trees","weed","Petioles","cannabis","Marijuana",
+    "eldertrees","entwives","leaves","saplings","delta8","treedibles","vaporents",
+    "420","cannabiscultivation","microgrowery",
+    "CBD","CBDflower","CBDhempBuds","cbdinfo","CBDoil","CBDOilReviews","cbg","CultoftheFranklin","Dabs","hempflowers",
+    "MMJ","noids","rosin","Waxpen"]
+    DB_PATH = "reddit_data-cann.db" #cannabis db
+
 
 SORTS = ["new", "top", "controversial"]
 TIME_FILTERS = ["day", "week", "month", "year", "all"]
 MAX_POSTS_PER_COMBO = 1000 #change to 1000 when done debugging
-# DB_PATH = "reddit_data-cann.db" #cannabis db
-DB_PATH = "reddit_data.db" #health db
-
 
 # === INITIALIZE DB ===
 conn = sqlite3.connect(DB_PATH)
@@ -223,15 +227,30 @@ def refresh_recent_and_new_posts():
             try:
                 post = reddit.submission(id=post_id)
                 post.comments.replace_more(limit=0)
+
+                new_comment_count = 0
                 for comment in post.comments.list():
                     if isinstance(comment, MoreComments):
                         continue
-                    if already_fetched_comment(comment.id):
+                    cur.execute("SELECT 1 FROM comments WHERE id = ?", (comment.id,))
+                    if cur.fetchone() is not None:
                         continue
                     store_comment(comment, post.id)
+                    new_comment_count += 1
                     time.sleep(random.uniform(0.1, 0.5))
+
+                # Update the post metadata with new score, num_comments, and fetch time
+                cur.execute('''
+                    UPDATE posts
+                    SET score = ?, num_comments = ?, fetched_utc = ?
+                    WHERE id = ?
+                ''', (post.score, post.num_comments, int(time.time()), post_id))
+                conn.commit()
+                print(f"✅ Refreshed {new_comment_count} new comments for {post_id}")
+
             except Exception as e:
-                print(f"Error refreshing comments for {post_id}: {e}")
+                print(f"❌ Error refreshing comments for {post_id}: {e}")
+
 
 def backfill_missing_comments():
     #Get all post IDs
